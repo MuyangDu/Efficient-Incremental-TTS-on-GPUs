@@ -4,9 +4,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="">
-  <meta name="author" content="Mark Otto, Jacob Thornton, and Bootstrap contributors">
-  <meta name="generator" content="Hugo 0.104.2">
+  <meta name="description" content="Incremental text-to-speech, also known as streaming TTS, has been increasingly applied to online speech
+  applications that require ultra-low response latency to provide an optimal user experience. However, most of the
+  existing speech synthesis pipelines deployed on GPU are still non-incremental, which uncovers limitations in
+  high-concurrency scenarios, especially when the pipeline is built with end-to-end neural network models. To
+  address this issue, we present a highly efficient approach to perform real-time incremental TTS on GPUs with
+  Instant Request Pooling and Module-wise Dynamic Batching. Experimental results demonstrate that the proposed
+  method is capable of producing high-quality speech with a first-chunk latency lower than 80ms under 100 QPS on a
+  single NVIDIA A10 GPU and significantly outperforms the non-incremental twin in both concurrency and latency.
+  Our work reveals the effectiveness of high-performance incremental TTS on GPUs.">
   <title>Efficient Incremental Text-to-Speech on GPUs</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.2/css/bootstrap.min.css"
@@ -112,10 +118,13 @@
       <hr />
 
       <p>
-        <strong>QPS</strong>: Queries-per-Second. The number of TTS requests sent to the server per second. 
-        <strong>FCL</strong>: First Chunk Latency. (between the request been sent and the first audio chunk been received). 
-        <strong>LCL</strong>: Last Chunk Latency. (between the request been sent and the last audio chunk being received). <br />
-        <strong>RTF</strong>: Real-Time Factor. LCL/Duration for incremental synthesis and Latency/Duration for non-incremental synthesis.
+        <strong>QPS</strong>: Queries-per-Second. The number of TTS requests sent to the server per second.
+        <strong>FCL</strong>: First Chunk Latency. (between the request been sent and the first audio chunk been
+        received).
+        <strong>LCL</strong>: Last Chunk Latency. (between the request been sent and the last audio chunk being
+        received). <br />
+        <strong>RTF</strong>: Real-Time Factor. LCL/Duration for incremental synthesis and Latency/Duration for
+        non-incremental synthesis.
       </p>
 
       <h5 class="mb-2 mt-4">Incremental Pipeline - Overlap 4</h5>
@@ -1054,7 +1063,8 @@
       <hr />
 
       <p>
-        For better visualization, some lines are not displayed by default. You can click on the legends to show/hide lines.
+        For better visualization, some lines are not displayed by default. You can click on the legends to show/hide
+        lines.
       </p>
 
       <div class="row mb-3 text-center">
