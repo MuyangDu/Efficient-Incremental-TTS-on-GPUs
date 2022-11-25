@@ -1,0 +1,2056 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="">
+  <meta name="author" content="Mark Otto, Jacob Thornton, and Bootstrap contributors">
+  <meta name="generator" content="Hugo 0.104.2">
+  <title>Efficient Incremental Text-to-Speech on GPUs</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.2.2/css/bootstrap.min.css"
+    integrity="sha512-CpIKUSyh9QX2+zSdfGP+eWLx23C8Dj9/XmHjZY2uDtfkdLGo0uY12jgcnkX9vXOgYajEKb/jiw67EYm+kBf+6g=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
+
+  <!-- Favicons -->
+  <meta name="theme-color" content="#712cf9">
+
+
+  <style>
+    .bd-placeholder-img {
+      font-size: 1.125rem;
+      text-anchor: middle;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      user-select: none;
+    }
+
+    @media (min-width: 768px) {
+      .bd-placeholder-img-lg {
+        font-size: 3.5rem;
+      }
+    }
+
+    .b-example-divider {
+      height: 3rem;
+      background-color: rgba(0, 0, 0, .1);
+      border: solid rgba(0, 0, 0, .15);
+      border-width: 1px 0;
+      box-shadow: inset 0 .5em 1.5em rgba(0, 0, 0, .1), inset 0 .125em .5em rgba(0, 0, 0, .15);
+    }
+
+    .b-example-vr {
+      flex-shrink: 0;
+      width: 1.5rem;
+      height: 100vh;
+    }
+
+    .bi {
+      vertical-align: -.125em;
+      fill: currentColor;
+    }
+
+    .nav-scroller {
+      position: relative;
+      z-index: 2;
+      height: 2.75rem;
+      overflow-y: hidden;
+    }
+
+    .nav-scroller .nav {
+      display: flex;
+      flex-wrap: nowrap;
+      padding-bottom: 1rem;
+      margin-top: -1px;
+      overflow-x: auto;
+      text-align: center;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+    }
+  </style>
+
+
+  <!-- Custom styles for this template -->
+  <link href="https://getbootstrap.com/docs/5.2/examples/grid/grid.css" rel="stylesheet">
+</head>
+
+<body class="py-4">
+
+  <main>
+    <div class="container">
+
+      <h1>Efficient Incremental Text-to-Speech on GPUs</h1>
+
+      <div class="row">
+        <div class="col-6">
+          <p class="lead"><strong>Authors:</strong> Muyang Du, Chuan Liu, Jiaxing Qi, Junjie Lai</p>
+        </div>
+        <div class="col-6">
+          <p class="lead"><strong>Paper:</strong> <a
+              href="https://arxiv.org/abs/2206.13521">https://arxiv.org/abs/2206.13521</a></p>
+        </div>
+      </div>
+
+      <p>
+        Incremental text-to-speech, also known as streaming TTS, has been increasingly applied to online speech
+        applications that require ultra-low response latency to provide an optimal user experience. However, most of the
+        existing speech synthesis pipelines deployed on GPU are still non-incremental, which uncovers limitations in
+        high-concurrency scenarios, especially when the pipeline is built with end-to-end neural network models. To
+        address this issue, we present a highly efficient approach to perform real-time incremental TTS on GPUs with
+        Instant Request Pooling and Module-wise Dynamic Batching. Experimental results demonstrate that the proposed
+        method is capable of producing high-quality speech with a first-chunk latency lower than 80ms under 100 QPS on a
+        single NVIDIA A10 GPU and significantly outperforms the non-incremental twin in both concurrency and latency.
+        Our work reveals the effectiveness of high-performance incremental TTS on GPUs.
+      </p>
+
+      <img src="architecture.svg" class="img-fluid mt-2" alt="architecture">
+
+      <h2 class="mt-4">Metrics</h2>
+
+      <hr />
+
+      <p>
+        <strong>QPS</strong>: Queries-per-Second. The number of TTS requests sent to the server per second. 
+        <strong>FCL</strong>: First Chunk Latency. (between the request been sent and the first audio chunk been received). 
+        <strong>LCL</strong>: Last Chunk Latency. (between the request been sent and the last audio chunk being received). <br />
+        <strong>RTF</strong>: Real-Time Factor. LCL/Duration for incremental synthesis and Latency/Duration for non-incremental synthesis.
+      </p>
+
+      <h5 class="mb-2 mt-4">Incremental Pipeline - Overlap 4</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Short Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>22.48</td>
+                <td>109.58</td>
+                <td>0.041</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>25.43</td>
+                <td>123.37</td>
+                <td>0.047</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>26.45</td>
+                <td>130.42</td>
+                <td>0.049</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>26.58</td>
+                <td>139.27</td>
+                <td>0.053</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>27.00</td>
+                <td>146.58</td>
+                <td>0.055</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>30.52</td>
+                <td>159.37</td>
+                <td>0.060</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>32.04</td>
+                <td>168.60</td>
+                <td>0.064</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>33.27</td>
+                <td>176.22</td>
+                <td>0.067</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>35.76</td>
+                <td>186.99</td>
+                <td>0.071</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>37.69</td>
+                <td>200.02</td>
+                <td>0.076</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Medium Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>24.92</td>
+                <td>167.39</td>
+                <td>0.041</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>26.27</td>
+                <td>184.02</td>
+                <td>0.045</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>27.17</td>
+                <td>197.99</td>
+                <td>0.048</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>28.41</td>
+                <td>218.33</td>
+                <td>0.053</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>33.41</td>
+                <td>249.08</td>
+                <td>0.061</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>35.28</td>
+                <td>270.97</td>
+                <td>0.066</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>38.16</td>
+                <td>295.36</td>
+                <td>0.072</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>43.03</td>
+                <td>330.87</td>
+                <td>0.081</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>48.46</td>
+                <td>378.39</td>
+                <td>0.093</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>56.19</td>
+                <td>438.77</td>
+                <td>0.107</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Long Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>27.20</td>
+                <td>286.47</td>
+                <td>0.041</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>27.23</td>
+                <td>321.10</td>
+                <td>0.046</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>30.83</td>
+                <td>383.15</td>
+                <td>0.055</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>35.12</td>
+                <td>477.44</td>
+                <td>0.068</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>45.67</td>
+                <td>585.71</td>
+                <td>0.084</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>57.95</td>
+                <td>745.58</td>
+                <td>0.107</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>77.05</td>
+                <td>1002.56</td>
+                <td>0.143</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>936.99</td>
+                <td>2466.44</td>
+                <td>0.352</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>15844.50</td>
+                <td>17401.40</td>
+                <td>2.484</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>30566.30</td>
+                <td>32131.50</td>
+                <td>4.590</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Mixed Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>25.18</td>
+                <td>187.11</td>
+                <td>0.041</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>26.60</td>
+                <td>208.41</td>
+                <td>0.046</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>28.26</td>
+                <td>233.91</td>
+                <td>0.051</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>29.93</td>
+                <td>268.41</td>
+                <td>0.058</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>34.51</td>
+                <td>307.90</td>
+                <td>0.067</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>38.90</td>
+                <td>346.18</td>
+                <td>0.075</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>44.47</td>
+                <td>400.32</td>
+                <td>0.087</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>51.30</td>
+                <td>456.63</td>
+                <td>0.101</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>60.42</td>
+                <td>541.99</td>
+                <td>0.121</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>75.15</td>
+                <td>669.85</td>
+                <td>0.151</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Incremental Pipeline - Overlap 8</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Short Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>22.25</td>
+                <td>108.24</td>
+                <td>0.041</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>25.03</td>
+                <td>120.98</td>
+                <td>0.046</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>26.19</td>
+                <td>129.40</td>
+                <td>0.049</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>26.24</td>
+                <td>137.21</td>
+                <td>0.052</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>26.99</td>
+                <td>146.90</td>
+                <td>0.055</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>30.87</td>
+                <td>161.18</td>
+                <td>0.061</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>32.26</td>
+                <td>170.41</td>
+                <td>0.064</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>33.70</td>
+                <td>177.68</td>
+                <td>0.067</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>36.10</td>
+                <td>189.02</td>
+                <td>0.071</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>38.63</td>
+                <td>205.13</td>
+                <td>0.077</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Medium Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>24.48</td>
+                <td>163.90</td>
+                <td>0.040</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>26.02</td>
+                <td>182.18</td>
+                <td>0.045</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>26.44</td>
+                <td>194.37</td>
+                <td>0.048</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>28.52</td>
+                <td>219.53</td>
+                <td>0.054</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>33.67</td>
+                <td>252.22</td>
+                <td>0.062</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>35.83</td>
+                <td>275.58</td>
+                <td>0.067</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>39.38</td>
+                <td>305.88</td>
+                <td>0.075</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>45.02</td>
+                <td>348.09</td>
+                <td>0.085</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>52.69</td>
+                <td>408.19</td>
+                <td>0.100</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>61.51</td>
+                <td>480.58</td>
+                <td>0.118</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Long Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>26.26</td>
+                <td>279.01</td>
+                <td>0.040</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>27.27</td>
+                <td>314.08</td>
+                <td>0.045</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>31.03</td>
+                <td>385.89</td>
+                <td>0.055</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>37.41</td>
+                <td>493.60</td>
+                <td>0.071</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>48.61</td>
+                <td>623.64</td>
+                <td>0.089</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>61.92</td>
+                <td>798.00</td>
+                <td>0.114</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>91.42</td>
+                <td>1190.83</td>
+                <td>0.170</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>7593.05</td>
+                <td>9227.65</td>
+                <td>1.318</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>23025.10</td>
+                <td>24670.90</td>
+                <td>3.523</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>37970.60</td>
+                <td>39622.70</td>
+                <td>5.661</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Mixed Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">FCL(ms)</th>
+                <th scope="col">LCL(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>23.89</td>
+                <td>179.55</td>
+                <td>0.040</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>25.83</td>
+                <td>200.64</td>
+                <td>0.044</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>27.28</td>
+                <td>224.38</td>
+                <td>0.049</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>29.46</td>
+                <td>265.13</td>
+                <td>0.057</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>34.80</td>
+                <td>303.04</td>
+                <td>0.066</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>39.69</td>
+                <td>355.34</td>
+                <td>0.077</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>46.29</td>
+                <td>418.37</td>
+                <td>0.091</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>53.60</td>
+                <td>481.11</td>
+                <td>0.106</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>64.86</td>
+                <td>580.29</td>
+                <td>0.130</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>86.24</td>
+                <td>767.58</td>
+                <td>0.174</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Non-Incremental Pipeline</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Short Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">Latency(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>99.63</td>
+                <td>0.038</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>128.45</td>
+                <td>0.049</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>132.49</td>
+                <td>0.050</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>181.84</td>
+                <td>0.067</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>182.79</td>
+                <td>0.068</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>212.45</td>
+                <td>0.079</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>227.66</td>
+                <td>0.086</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>247.27</td>
+                <td>0.094</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>293.49</td>
+                <td>0.111</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>464.85</td>
+                <td>0.176</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Medium Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">Latency(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>195.82</td>
+                <td>0.046</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>215.76</td>
+                <td>0.052</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>234.68</td>
+                <td>0.057</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>258.29</td>
+                <td>0.063</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>320.32</td>
+                <td>0.078</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>377.08</td>
+                <td>0.092</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>451.67</td>
+                <td>0.109</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>566.63</td>
+                <td>0.139</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>779.93</td>
+                <td>0.190</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>1517.05</td>
+                <td>0.371</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Long Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">Latency(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>327.04</td>
+                <td>0.046</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>355.41</td>
+                <td>0.051</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>438.09</td>
+                <td>0.062</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>531.79</td>
+                <td>0.076</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>690.85</td>
+                <td>0.098</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>897.92</td>
+                <td>0.128</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>1405.51</td>
+                <td>0.202</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>7648.74</td>
+                <td>1.094</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>18913.50</td>
+                <td>2.706</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>52586.90</td>
+                <td>7.523</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-3">
+          <table class="table table-striped">
+            <caption><strong>Mixed Text</strong></caption>
+            <thead>
+              <tr>
+                <th scope="col">QPS</th>
+                <th scope="col">Latency(ms)</th>
+                <th scope="col">RTF</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">10</th>
+                <td>222.80</td>
+                <td>0.050</td>
+              </tr>
+              <tr>
+                <th scope="row">20</th>
+                <td>268.58</td>
+                <td>0.062</td>
+              </tr>
+              <tr>
+                <th scope="row">30</th>
+                <td>311.24</td>
+                <td>0.072</td>
+              </tr>
+              <tr>
+                <th scope="row">40</th>
+                <td>376.21</td>
+                <td>0.090</td>
+              </tr>
+              <tr>
+                <th scope="row">50</th>
+                <td>516.92</td>
+                <td>0.127</td>
+              </tr>
+              <tr>
+                <th scope="row">60</th>
+                <td>865.47</td>
+                <td>0.217</td>
+              </tr>
+              <tr>
+                <th scope="row">70</th>
+                <td>1253.25</td>
+                <td>0.313</td>
+              </tr>
+              <tr>
+                <th scope="row">80</th>
+                <td>7521.03</td>
+                <td>1.842</td>
+              </tr>
+              <tr>
+                <th scope="row">90</th>
+                <td>18606.80</td>
+                <td>4.525</td>
+              </tr>
+              <tr>
+                <th scope="row">100</th>
+                <td>51348.20</td>
+                <td>12.708</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h2 class="">Latency</h2>
+
+      <hr />
+
+      <h5 class="mb-2">Short Text (Audio Duration: 2.64s) under Diffeent QPS.</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-4">
+          <canvas id="shortTextFirstChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="shortTextLastChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="shortTextLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Medium Text (Audio Duration: 4.08s) under Diffeent QPS.</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-4">
+          <canvas id="mediumTextFirstChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="mediumTextLastChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="mediumTextLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Long Text (Audio Duration: 7.00s) under Diffeent QPS.</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-4">
+          <canvas id="longTextFirstChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="longTextLastChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="longTextLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Mixed Text (Audio Duration: 4.54s) under Diffeent QPS.</h5>
+
+      <div class="row mb-3 text-center">
+        <div class="col-sm-4">
+          <canvas id="mixedTextFirstChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="mixedTextLastChunkLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+        <div class="col-sm-4">
+          <canvas id="mixedTextLatency" style="width:100%;height:350px;"></canvas>
+        </div>
+      </div>
+
+      <h2 class="mt-4">Real-Time Factor</h2>
+
+      <hr />
+
+      <p>
+        For better visualization, some lines are not displayed by default. You can click on the legends to show/hide lines.
+      </p>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12">
+          <canvas id="realTimeFactor1" style="width:100%;height:500px;"></canvas>
+        </div>
+      </div>
+
+      <h2 class="mt-4">Samples</h2>
+
+      <hr />
+
+      <p>Dataset: <a href="https://www.data-baker.com/open_source.html" target="_blank">Chinese Standard Mandarin Speech
+          Copus (10000 Sentences)</a> from <a href="https://www.data-baker.com/" target="_blank">Databaker</a></p>
+      <br />
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>室外建有葡萄园和停机坪。shì wài jiàn yǒu pú táo yuán hé tíng jī píng 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-1.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-1.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-1.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-1.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>一起在晚上仰望星空吗？yī qǐ zài wǎn shàng yǎng wàng xīng kōng ma ？</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-2.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-2.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-2.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-2.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>有望年底与观众见面。yǒu wàng nián dǐ yǔ guān zhòng jiàn miàn 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-3.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-3.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-3.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-3.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>太湖太浦闸开闸排水。tài hú tài pǔ zhá kāi zhá pái shuǐ 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-4.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-4.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-4.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-4.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>天气转好利于春运交通。tiān qì zhuǎn hǎo lì yú chūn yùn jiāo tōng 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-5.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-5.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-5.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-5.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>许多美妙的念头纷至沓来。xǔ duō měi miào de niàn tou fēn zhì tà lái 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-6.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-6.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-6.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-6.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>时值傍晚，烟囱开始排烟。shí zhí bàng wǎn ， yān cōng kāi shǐ pái yān 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-7.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-7.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-7.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-7.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-3 text-center">
+        <div class="col-md-12 mb-2 h5"><strong>出差也要照顾好自己。chū chāi yě yào zhào gù hǎo zì jǐ 。</strong></div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Ground Truth
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/gt/gt-8.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Non-Incremental Synthesis
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/non-inc/non-inc-8.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 4
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol4/inc-ol4-8.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="col-md-12 mb-2 text-center">
+            Incremental Synthesis - Overlap 8
+          </div>
+          <div class="col-md-12">
+            <audio controls>
+              <source src="samples/inc-ol8/inc-ol8-8.wav" type="audio/wav">
+            </audio>
+          </div>
+        </div>
+      </div>
+  </main>
+
+
+
+
+  <script>
+    var xValues = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+    new Chart("realTimeFactor1", {
+      type: "line",
+      data: {
+        labels: xValues,
+        datasets: [{
+          data: [0.041, 0.047, 0.049, 0.053, 0.055, 0.060, 0.064, 0.067, 0.071, 0.076],
+          borderColor: "#5DADE2",
+          fill: false,
+          label: 'Short-INCR-4'
+        }, {
+          data: [0.041, 0.045, 0.048, 0.053, 0.061, 0.066, 0.072, 0.081, 0.093, 0.107],
+          borderColor: "#52BE80",
+          fill: false,
+          label: 'Medium-INCR-4'
+        }, {
+          data: [0.041, 0.046, 0.055, 0.068, 0.084, 0.107, 0.143, 0.352, 2.484, 4.590],
+          borderColor: "#F1C40F",
+          fill: false,
+          hidden: true,
+          label: 'Long-INCR-4'
+        }, {
+          data: [0.041, 0.046, 0.051, 0.058, 0.067, 0.075, 0.087, 0.101, 0.121, 0.151],
+          borderColor: "#EB984E",
+          fill: false,
+          hidden: false,
+          label: 'Mixed-INCR-4'
+        },
+        {
+          data: [0.041, 0.046, 0.049, 0.052, 0.055, 0.061, 0.064, 0.067, 0.071, 0.077],
+          borderColor: "#AF7AC5",
+          fill: false,
+          label: 'Short-INCR-8'
+        }, {
+          data: [0.040, 0.045, 0.048, 0.054, 0.062, 0.067, 0.075, 0.085, 0.100, 0.118],
+          borderColor: "#EC7063",
+          fill: false,
+          label: 'Medium-INCR-8'
+        }, {
+          data: [0.040, 0.045, 0.055, 0.071, 0.089, 0.114, 0.170, 1.318, 3.523, 5.661],
+          borderColor: "#95A5A6",
+          fill: false,
+          hidden: true,
+          label: 'Long-INCR-8'
+        }, {
+          data: [0.040, 0.044, 0.049, 0.057, 0.066, 0.077, 0.091, 0.106, 0.130, 0.174],
+          borderColor: "#1ABC9C",
+          fill: false,
+          hidden: false,
+          label: 'Mixed-INCR-8'
+        },
+        {
+          data: [0.038, 0.049, 0.050, 0.067, 0.068, 0.079, 0.086, 0.094, 0.111, 0.176],
+          borderColor: "#808B96",
+          fill: false,
+          label: 'Short-Non-INCR'
+        }, {
+          data: [0.046, 0.052, 0.057, 0.063, 0.078, 0.092, 0.109, 0.139, 0.190, 0.371],
+          borderColor: "#2471A3",
+          hidden: true,
+          fill: false,
+          label: 'Medium-Non-INCR'
+        }, {
+          data: [0.046, 0.051, 0.062, 0.076, 0.098, 0.128, 0.202, 1.094, 2.706, 7.523],
+          borderColor: "#5B2C6F",
+          fill: false,
+          hidden: true,
+          label: 'Long-Non-INCR-8'
+        }, {
+          data: [0.050, 0.062, 0.072, 0.090, 0.127, 0.217, 0.313, 1.842, 4.525, 12.708],
+          borderColor: "#566573",
+          fill: false,
+          hidden: true,
+          label: 'Mixed-Non-INCR-8'
+        }]
+      },
+      options: {
+        legend: { display: true },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Real-Time Factor'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [22.48, 25.43, 26.45, 26.58, 27.00, 30.52, 32.04, 33.27, 35.76, 37.69];
+    var yValues2 = [22.25, 25.03, 26.19, 26.24, 26.99, 30.87, 32.26, 33.70, 36.10, 38.63];
+    var barColors1 = ["#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400"];
+    var barColors2 = ["#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866"];
+
+    new Chart("shortTextFirstChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1,
+          // hidden: true
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental First Chunk Latency - Short Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'First Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [109.58, 123.37, 130.42, 139.27, 146.58, 159.37, 168.60, 176.22, 186.99, 200.02];
+    var yValues2 = [108.24, 120.98, 129.40, 137.21, 146.90, 161.18, 170.41, 177.68, 189.02, 205.13];
+    var barColors1 = ["#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB"];
+    var barColors2 = ["#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9"];
+
+    new Chart("shortTextLastChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental Last Chunk Latency - Short Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Last Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [99.63, 128.45, 132.49, 181.84, 182.79, 212.45, 227.66, 247.27, 293.49, 464.85];
+    var barColors1 = ["#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C"];
+
+    new Chart("shortTextLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: '',
+          backgroundColor: barColors1,
+          data: yValues1
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Non-Incremental Latency - Short Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [24.92, 26.27, 27.17, 28.41, 33.41, 35.28, 38.16, 43.03, 48.46, 56.19];
+    var yValues2 = [24.48, 26.02, 26.44, 28.52, 33.67, 35.83, 39.38, 45.02, 52.69, 61.65];
+    var barColors1 = ["#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400"];
+    var barColors2 = ["#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866"];
+
+    new Chart("mediumTextFirstChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental First Chunk Latency - Medium Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'First Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [167.39, 184.02, 197.99, 218.33, 249.08, 270.97, 295.36, 330.87, 378.39, 438.77];
+    var yValues2 = [163.90, 182.18, 194.37, 219.53, 252.22, 275.58, 305.88, 348.09, 408.19, 480.58];
+    var barColors1 = ["#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB"];
+    var barColors2 = ["#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9"];
+
+    new Chart("mediumTextLastChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental Last Chunk Latency - Medium Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Last Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [195.82, 215.76, 234.68, 258.29, 320.32, 377.08, 451.67, 566.63, 779.93, 1517.05];
+    var barColors1 = ["#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C"];
+
+    new Chart("mediumTextLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: '',
+          backgroundColor: barColors1,
+          data: yValues1
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Non-Incremental Latency - Medium Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70"];
+    var yValues1 = [27.20, 27.23, 30.83, 35.12, 45.67, 57.95, 77.05];
+    var yValues2 = [26.26, 27.27, 31.03, 37.41, 48.61, 61.92, 91.42];
+    var barColors1 = ["#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400"];
+    var barColors2 = ["#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866"];
+
+    new Chart("longTextFirstChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental First Chunk Latency - Long Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'First Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70"];
+    var yValues1 = [286.47, 321.10, 383.15, 477.44, 585.71, 745.58, 1002.56];
+    var yValues2 = [279.01, 314.08, 385.89, 493.60, 623.64, 798.00, 1190.83];
+    var barColors1 = ["#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB"];
+    var barColors2 = ["#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9"];
+
+    new Chart("longTextLastChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental Last Chunk Latency - Long Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Last Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70"];
+    var yValues1 = [327.04, 355.41, 438.09, 531.79, 690.85, 897.92, 1405.51];
+    var barColors1 = ["#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C"];
+
+    new Chart("longTextLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: '',
+          backgroundColor: barColors1,
+          data: yValues1
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Non-Incremental Latency - Long Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [25.18, 26.60, 28.26, 29.93, 34.51, 38.90, 44.47, 51.30, 60.42, 75.15];
+    var yValues2 = [23.89, 25.83, 27.28, 29.46, 34.80, 39.69, 46.29, 53.60, 64.86, 86.45];
+    var barColors1 = ["#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400", "#D35400"];
+    var barColors2 = ["#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866", "#E59866"];
+
+    new Chart("mixedTextFirstChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental First Chunk Latency - Mixed Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'First Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70", "80", "90", "100"];
+    var yValues1 = [187.11, 208.41, 233.91, 268.41, 307.90, 346.18, 400.32, 456.63, 541.99, 669.85];
+    var yValues2 = [179.55, 200.64, 224.38, 265.13, 303.04, 355.34, 418.37, 481.11, 580.29, 767.58];
+    var barColors1 = ["#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB", "#3498DB"];
+    var barColors2 = ["#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9", "#85C1E9"];
+
+    new Chart("mixedTextLastChunkLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        },
+        {
+          label: 'Overlap 8',
+          backgroundColor: barColors2,
+          data: yValues2
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Incremental Last Chunk Latency - Mixed Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Last Chunk Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+  <script>
+    var xValues = ["10", "20", "30", "40", "50", "60", "70"];
+    var yValues1 = [222.80, 268.58, 311.24, 376.21, 516.92, 865.47, 1253.25];
+    var barColors1 = ["#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C", "#707B7C"];
+
+    new Chart("mixedTextLatency", {
+      type: "bar",
+      data: {
+        labels: xValues,
+        datasets: [{
+          label: 'Overlap 4',
+          backgroundColor: barColors1,
+          data: yValues1
+        }]
+      },
+      options: {
+        legend: { display: true },
+        title: {
+          display: true,
+          text: "Non-Incremental Latency - Mixed Text"
+        },
+        scales: {
+          yAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'Latency (ms)'
+            }
+          }],
+          xAxes: [{
+            scaleLabel: {
+              display: true,
+              labelString: 'QPS'
+            }
+          }],
+        }
+      }
+    });
+  </script>
+
+</body>
+
+</html>
