@@ -640,19 +640,19 @@
                 <td>0.170</td>
               </tr>
               <tr>
-                <th scope="row">80</th>
+                <th scope="row">80*</th>
                 <td>7593.05</td>
                 <td>9227.65</td>
                 <td>1.318</td>
               </tr>
               <tr>
-                <th scope="row">90</th>
+                <th scope="row">90*</th>
                 <td>23025.10</td>
                 <td>24670.90</td>
                 <td>3.523</td>
               </tr>
               <tr>
-                <th scope="row">100</th>
+                <th scope="row">100*</th>
                 <td>37970.60</td>
                 <td>39622.70</td>
                 <td>5.661</td>
@@ -734,6 +734,12 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div>
+          <p class="text-start"><strong>*</strong> The permitted max batch size is set to 256 for each module.
+            Suppose the number of retrieved items of a module exceeds the permitted max batch size. In that case, the
+            excess will be skipped in the current iteration and put back into the pool to be processed in the following
+            iterations, resulting in a backlog in the request pool.</p>
         </div>
       </div>
 
